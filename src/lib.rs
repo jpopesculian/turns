@@ -267,6 +267,7 @@ impl_consts!(u16);
 impl_consts!(u32);
 impl_consts!(u64);
 impl_consts!(u128);
+impl_consts!(usize);
 
 /// 8-bit angle: one full turn per 256 steps.
 pub type Angle8 = Angle<u8>;
@@ -278,6 +279,8 @@ pub type Angle32 = Angle<u32>;
 pub type Angle64 = Angle<u64>;
 /// 128-bit angle: one full turn per 2¹²⁸ steps.
 pub type Angle128 = Angle<u128>;
+/// Pointer-width angle: one full turn per `usize::MAX + 1` steps (platform-dependent).
+pub type AngleSize = Angle<usize>;
 
 #[cfg(test)]
 mod tests {
