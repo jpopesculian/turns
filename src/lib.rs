@@ -367,8 +367,12 @@ pub type Angle128 = Angle<u128>;
 pub type AngleSize = Angle<usize>;
 
 #[cfg(test)]
+extern crate alloc;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
     use core::f64::consts::{PI, TAU};
 
     #[test]
