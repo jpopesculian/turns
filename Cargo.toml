@@ -1,6 +1,6 @@
 [package]
 name = "turns"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Julian Popescu <hi@julian.dev>"]
 description = "Fixed-point angles modulo 2π backed by unsigned integers."

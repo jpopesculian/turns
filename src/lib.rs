@@ -26,10 +26,10 @@
 //! assert_eq!(pi + pi, Angle8::from_radians(0.0_f64));
 //! ```
 
-use core::ops::{Add, Div, Mul, Neg, Shl, Shr, Sub};
+use core::ops::{Add, Div, Mul, Neg, Rem, Shl, Shr, Sub};
 use num_traits::{
-    Bounded, CheckedDiv, CheckedMul, Euclid, Float, FloatConst, NumCast, ToPrimitive, WrappingAdd,
-    WrappingMul, WrappingNeg, WrappingSub, Zero,
+    Bounded, CheckedDiv, CheckedMul, CheckedRem, Euclid, Float, FloatConst, NumCast, PrimInt,
+    ToPrimitive, WrappingAdd, WrappingMul, WrappingNeg, WrappingSub, Zero,
 };
 
 /// Fixed-point angle modulo 2π, stored as an unsigned integer `T`.
@@ -141,6 +141,50 @@ impl<T: ToPrimitive> Angle<T> {
     }
 }
 
+impl<T: PrimInt> Angle<T> {
+    /// Express the angle as the reduced fraction `num·π/den`.
+    ///
+    /// Returns `(num, den)` such that the angle equals `num·π/den`, with the
+    /// fraction reduced by their greatest common power of two (the only
+    /// possible common factor, since `den` is always a power of two). The zero
+    /// angle returns `(0, 1)`.
+    #[must_use]
+    pub fn to_frac(self) -> (T, T) {
+        let one = T::one();
+        if self.0.is_zero() {
+            return (T::zero(), one);
+        }
+        let two = one + one;
+        let num = self.0;
+        let den = T::max_value() / two + one;
+        let shift = num.trailing_zeros().min(den.trailing_zeros()) as usize;
+        (num >> shift, den >> shift)
+    }
+}
+
+impl<T: PrimInt + WrappingMul + WrappingAdd> Angle<T> {
+    /// Construct an angle from the fraction `num·π/den`, reduced modulo 2π.
+    ///
+    /// Exact when `den` divides the raw value of π (i.e. `den` is a power of
+    /// two up to `2^(N-1)`); this covers every `(num, den)` that [`to_frac`]
+    /// can produce, so `from_frac(a.to_frac())` round-trips. For other `den`
+    /// the result is rounded by truncation.
+    ///
+    /// [`to_frac`]: Self::to_frac
+    ///
+    /// # Panics
+    ///
+    /// Panics if `den` is zero.
+    #[must_use]
+    pub fn from_frac(num: T, den: T) -> Self {
+        let two = T::one() + T::one();
+        let pi = T::max_value() / two + T::one();
+        let q = num / den;
+        let r = num % den;
+        Angle(q.wrapping_mul(&pi).wrapping_add(&(r * (pi / den))))
+    }
+}
+
 impl<T: ToPrimitive + Shr<usize, Output = T>> Angle<T> {
     /// Re-encode the angle in a different integer width.
     ///
@@ -165,6 +209,15 @@ impl<T: WrappingAdd> Add for Angle<T> {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
         Angle(self.0.wrapping_add(&rhs.0))
+    }
+}
+
+impl<T: Zero + WrappingAdd> Zero for Angle<T> {
+    fn zero() -> Self {
+        Angle(T::zero())
+    }
+    fn is_zero(&self) -> bool {
+        self.0.is_zero()
     }
 }
 
@@ -193,6 +246,13 @@ impl<T: Div> Div<T> for Angle<T> {
     type Output = Angle<T::Output>;
     fn div(self, rhs: T) -> Self::Output {
         Angle(self.0 / rhs)
+    }
+}
+
+impl<T: Rem> Rem<T> for Angle<T> {
+    type Output = Angle<T::Output>;
+    fn rem(self, rhs: T) -> Self::Output {
+        Angle(self.0 % rhs)
     }
 }
 
@@ -239,6 +299,14 @@ impl<T: CheckedDiv> Angle<T> {
     }
 }
 
+impl<T: CheckedRem> Angle<T> {
+    /// Remainder by an integer scalar, returning `None` on division by zero.
+    #[must_use]
+    pub fn checked_rem(self, rhs: T) -> Option<Self> {
+        self.0.checked_rem(&rhs).map(Angle)
+    }
+}
+
 macro_rules! impl_consts {
     ($t:ty) => {
         impl Angle<$t> {
@@ -260,6 +328,22 @@ macro_rules! impl_consts {
             pub const FRAC_PI_8: Self = Angle(<$t>::MAX / 16 + 1);
         }
     };
+}
+
+impl<T: PrimInt + core::fmt::Display> core::fmt::Display for Angle<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let (num, den) = self.to_frac();
+        if num.is_zero() {
+            return f.write_str("0");
+        }
+        let one = T::one();
+        match (num == one, den == one) {
+            (true, true) => f.write_str("π"),
+            (_, true) => write!(f, "{}π", num),
+            (true, _) => write!(f, "π/{}", den),
+            _ => write!(f, "{}π/{}", num, den),
+        }
+    }
 }
 
 impl_consts!(u8);
@@ -531,5 +615,102 @@ mod tests {
     fn widen_then_narrow_is_lossless() {
         let a: Angle8 = Angle(0b1010_1010);
         assert_eq!(a.cast::<u128>().cast::<u8>(), a);
+    }
+
+    #[test]
+    fn display_three_pi_over_two() {
+        assert_eq!(format!("{}", Angle::<u8>(0b1100_0000)), "3π/2");
+    }
+
+    #[test]
+    fn display_zero() {
+        assert_eq!(format!("{}", Angle8::ZERO), "0");
+    }
+
+    #[test]
+    fn display_pi() {
+        assert_eq!(format!("{}", Angle8::PI), "π");
+    }
+
+    #[test]
+    fn display_frac_pi_2() {
+        assert_eq!(format!("{}", Angle8::FRAC_PI_2), "π/2");
+    }
+
+    #[test]
+    fn display_frac_pi_4() {
+        assert_eq!(format!("{}", Angle8::FRAC_PI_4), "π/4");
+    }
+
+    #[test]
+    fn display_three_pi_over_four() {
+        assert_eq!(format!("{}", Angle::<u8>(0b0110_0000)), "3π/4");
+    }
+
+    #[test]
+    fn display_angle16_small_numerator() {
+        assert_eq!(format!("{}", Angle::<u16>(1)), "π/32768");
+    }
+
+    #[test]
+    fn to_frac_three_pi_over_two() {
+        assert_eq!(Angle::<u8>(0b1100_0000).to_frac(), (3, 2));
+    }
+
+    #[test]
+    fn to_frac_zero() {
+        assert_eq!(Angle8::ZERO.to_frac(), (0, 1));
+    }
+
+    #[test]
+    fn to_frac_pi() {
+        assert_eq!(Angle8::PI.to_frac(), (1, 1));
+    }
+
+    #[test]
+    fn to_frac_odd_numerator_keeps_full_denominator() {
+        assert_eq!(Angle::<u16>(1).to_frac(), (1, 32768));
+    }
+
+    #[test]
+    fn from_frac_three_pi_over_two() {
+        assert_eq!(Angle8::from_frac(3, 2), Angle(0xC0));
+    }
+
+    #[test]
+    fn from_frac_pi_is_half_circle() {
+        assert_eq!(Angle8::from_frac(1, 1), Angle8::PI);
+    }
+
+    #[test]
+    fn from_frac_zero() {
+        assert_eq!(Angle8::from_frac(0, 1), Angle8::ZERO);
+    }
+
+    #[test]
+    fn from_frac_wraps_past_two_pi() {
+        assert_eq!(Angle8::from_frac(3, 1), Angle8::PI);
+        assert_eq!(Angle8::from_frac(5, 2), Angle8::FRAC_PI_2);
+    }
+
+    #[test]
+    fn from_frac_quarter_turn() {
+        assert_eq!(Angle8::from_frac(1, 2), Angle8::FRAC_PI_2);
+    }
+
+    #[test]
+    fn from_frac_roundtrips_to_frac() {
+        let cases: [Angle8; 6] = [
+            Angle8::ZERO,
+            Angle8::PI,
+            Angle8::FRAC_PI_2,
+            Angle8::FRAC_PI_4,
+            Angle8::FRAC_PI_8,
+            Angle(0b1010_0000),
+        ];
+        for a in cases {
+            let (n, d) = a.to_frac();
+            assert_eq!(Angle8::from_frac(n, d), a);
+        }
     }
 }
