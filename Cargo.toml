@@ -6,6 +6,7 @@ authors = ["Julian Popescu <hi@julian.dev>"]
 description = "Fixed-point angles modulo 2π backed by unsigned integers."
 repository = "https://github.com/jpopesculian/turns"
 license = "MIT"
+readme = "README.md"
 keywords = ["angle", "math", "geometry", "fixed-point", "trigonometry"]
 categories = ["mathematics"]
 
