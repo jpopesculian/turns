@@ -1,0 +1,18 @@
+[package]
+name = "turns"
+version = "0.1.0"
+edition = "2024"
+authors = ["Julian Popescu <hi@julian.dev>"]
+description = "Fixed-point angles modulo 2π backed by unsigned integers."
+repository = "https://github.com/jpopesculian/turns"
+license = "MIT"
+keywords = ["angle", "math", "geometry", "fixed-point", "trigonometry"]
+categories = ["mathematics"]
+
+[features]
+default = ["std"]
+std = ["num-traits/std"]
+libm = ["num-traits/libm"]
+
+[dependencies]
+num-traits = { version = "0.2.19", default-features = false }
