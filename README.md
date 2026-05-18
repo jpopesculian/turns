@@ -30,8 +30,10 @@ assert_eq!(pi + pi, Angle8::from_radians(0.0_f64));
 
 ## Features
 
-- `std` *(default)* — enables `num-traits/std`.
+- `std` _(default)_ — enables `num-traits/std`.
 - `libm` — enables `num-traits/libm` for transcendentals in `no_std` builds.
+- `serde` — exposes `turns::serde::{raw, radians, degrees}` helper modules for
+  use with `#[serde(with = "...")]` on fields of type `Angle<T>`.
 
 For `no_std`:
 
