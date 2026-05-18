@@ -21,6 +21,10 @@ jobs:
             flags: ""
           - name: no_std+libm
             flags: "--no-default-features --features libm"
+          - name: default+serde
+            flags: "--features serde"
+          - name: no_std+libm+serde
+            flags: "--no-default-features --features libm,serde"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

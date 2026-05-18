@@ -1,6 +1,6 @@
 [package]
 name = "turns"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["Julian Popescu <hi@julian.dev>"]
 description = "Fixed-point angles modulo 2π backed by unsigned integers."
@@ -16,6 +16,12 @@ categories = ["mathematics"]
 default = ["std"]
 std = ["num-traits/std"]
 libm = ["num-traits/libm"]
+serde = ["dep:serde"]
 
 [dependencies]
 num-traits = { version = "0.2.15", default-features = false }
+serde = { version = "1.0", default-features = false, optional = true }
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

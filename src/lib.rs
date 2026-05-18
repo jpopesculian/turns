@@ -366,6 +366,107 @@ pub type Angle128 = Angle<u128>;
 /// Pointer-width angle: one full turn per `usize::MAX + 1` steps (platform-dependent).
 pub type AngleSize = Angle<usize>;
 
+/// Helpers for use with `#[serde(with = "...")]` on fields of type [`Angle<T>`].
+///
+/// Three submodules cover the common wire formats:
+///
+/// - [`raw`] — the inner integer as-is (lossless, compact).
+/// - [`radians`] — an `f64` in `[0, 2π)`.
+/// - [`degrees`] — an `f64` in `[0, 360)`.
+///
+/// # Example
+///
+/// ```
+/// # #[cfg(feature = "serde")] {
+/// use turns::Angle32;
+///
+/// #[derive(serde::Serialize, serde::Deserialize)]
+/// struct Heading {
+///     #[serde(with = "turns::serde::degrees")]
+///     yaw: Angle32,
+/// }
+/// # }
+/// ```
+#[cfg(feature = "serde")]
+pub mod serde {
+    use crate::Angle;
+    use num_traits::{Bounded, NumCast, ToPrimitive, Zero};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    /// Serialize/deserialize an [`Angle<T>`] as the raw inner integer.
+    pub mod raw {
+        use super::{Angle, Deserialize, Deserializer, Serialize, Serializer};
+
+        pub fn serialize<T, S>(angle: &Angle<T>, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            T: Serialize,
+            S: Serializer,
+        {
+            angle.0.serialize(serializer)
+        }
+
+        pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Angle<T>, D::Error>
+        where
+            T: Deserialize<'de>,
+            D: Deserializer<'de>,
+        {
+            T::deserialize(deserializer).map(Angle)
+        }
+    }
+
+    /// Serialize/deserialize an [`Angle<T>`] as an `f64` radian value in `[0, 2π)`.
+    ///
+    /// Non-finite input on deserialization is coerced to the zero angle (see
+    /// [`Angle::from_radians`]).
+    pub mod radians {
+        use super::{
+            Angle, Bounded, Deserialize, Deserializer, NumCast, Serializer, ToPrimitive, Zero,
+        };
+
+        pub fn serialize<T, S>(angle: &Angle<T>, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            T: Copy + NumCast + ToPrimitive + Bounded + Zero,
+            S: Serializer,
+        {
+            serializer.serialize_f64(angle.to_radians::<f64>())
+        }
+
+        pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Angle<T>, D::Error>
+        where
+            T: Copy + NumCast + ToPrimitive + Bounded + Zero,
+            D: Deserializer<'de>,
+        {
+            f64::deserialize(deserializer).map(Angle::<T>::from_radians)
+        }
+    }
+
+    /// Serialize/deserialize an [`Angle<T>`] as an `f64` degree value in `[0, 360)`.
+    ///
+    /// Non-finite input on deserialization is coerced to the zero angle (see
+    /// [`Angle::from_degrees`]).
+    pub mod degrees {
+        use super::{
+            Angle, Bounded, Deserialize, Deserializer, NumCast, Serializer, ToPrimitive, Zero,
+        };
+
+        pub fn serialize<T, S>(angle: &Angle<T>, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            T: Copy + NumCast + ToPrimitive + Bounded + Zero,
+            S: Serializer,
+        {
+            serializer.serialize_f64(angle.to_degrees::<f64>())
+        }
+
+        pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Angle<T>, D::Error>
+        where
+            T: Copy + NumCast + ToPrimitive + Bounded + Zero,
+            D: Deserializer<'de>,
+        {
+            f64::deserialize(deserializer).map(Angle::<T>::from_degrees)
+        }
+    }
+}
+
 #[cfg(test)]
 extern crate alloc;
 
@@ -716,5 +817,89 @@ mod tests {
             let (n, d) = a.to_frac();
             assert_eq!(Angle8::from_frac(n, d), a);
         }
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod serde_tests {
+    use super::{Angle, Angle8, Angle32};
+    use ::serde::{Deserialize, Serialize};
+    use core::f64::consts::PI;
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    #[serde(crate = "::serde")]
+    struct Raw {
+        #[serde(with = "crate::serde::raw")]
+        a: Angle8,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    #[serde(crate = "::serde")]
+    struct Rads {
+        #[serde(with = "crate::serde::radians")]
+        a: Angle32,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    #[serde(crate = "::serde")]
+    struct Degs {
+        #[serde(with = "crate::serde::degrees")]
+        a: Angle32,
+    }
+
+    #[test]
+    fn raw_serializes_as_inner_integer() {
+        let v = Raw { a: Angle8::PI };
+        assert_eq!(serde_json::to_string(&v).unwrap(), r#"{"a":128}"#);
+    }
+
+    #[test]
+    fn raw_roundtrip_is_exact() {
+        let v = Raw { a: Angle(0xA5) };
+        let s = serde_json::to_string(&v).unwrap();
+        assert_eq!(serde_json::from_str::<Raw>(&s).unwrap(), v);
+    }
+
+    #[test]
+    fn radians_roundtrip_within_precision() {
+        let v = Rads {
+            a: Angle32::from_radians(1.2345_f64),
+        };
+        let s = serde_json::to_string(&v).unwrap();
+        let r: Rads = serde_json::from_str(&s).unwrap();
+        let delta: f64 = (r.a - v.a).to_radians();
+        let delta = delta.min(core::f64::consts::TAU - delta);
+        assert!(delta < 1e-8, "delta = {delta}");
+    }
+
+    #[test]
+    fn radians_serializes_pi() {
+        let v = Rads {
+            a: Angle32::from_radians(PI),
+        };
+        let s = serde_json::to_string(&v).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&s).unwrap();
+        let f = parsed["a"].as_f64().unwrap();
+        assert!((f - PI).abs() < 1e-9);
+    }
+
+    #[test]
+    fn degrees_roundtrip_within_precision() {
+        let v = Degs {
+            a: Angle32::from_degrees(123.456_f64),
+        };
+        let s = serde_json::to_string(&v).unwrap();
+        let r: Degs = serde_json::from_str(&s).unwrap();
+        let delta: f64 = (r.a - v.a).to_degrees();
+        let delta = delta.min(360.0 - delta);
+        assert!(delta < 1e-6, "delta = {delta}");
+    }
+
+    #[test]
+    fn degrees_serializes_180() {
+        let v = Degs {
+            a: Angle32::from_degrees(180.0_f64),
+        };
+        assert_eq!(serde_json::to_string(&v).unwrap(), r#"{"a":180.0}"#);
     }
 }
